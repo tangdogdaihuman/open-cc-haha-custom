@@ -19,6 +19,74 @@ DIST_DIR = CC_HAHA_DIR / "desktop" / "dist"
 API_PORT = PORT
 FRONTEND_PORT = 18924
 TERMINAL_PORT = 18925
+NOTIFICATION_CONFIG_PATH = Path.home() / ".claude" / "cc-haha" / "desktop-config.json"
+
+
+def _read_notification_state():
+    """读取通知权限状态。WinRT 检测 + 配置文件兜底。"""
+    try:
+        from winrt.windows.ui.notifications import ToastNotifier
+        notifier = ToastNotifier()
+        # WinRT setting 枚举: Enabled=0, DisabledForApplication=1, DisabledForUser=2, DisabledByGroupPolicy=3, DisabledByManifest=4
+        if notifier.setting.value_ == 1:  # DisabledForApplication
+            return "denied"
+        if notifier.setting.value_ in (2, 3, 4):  # 用户/策略/清单禁用
+            return "denied"
+        return "granted"
+    except Exception:
+        # WinRT 不可用时回退到配置文件
+        try:
+            if NOTIFICATION_CONFIG_PATH.exists():
+                cfg = json.loads(NOTIFICATION_CONFIG_PATH.read_text(encoding="utf-8"))
+                return cfg.get("notificationPermission", "granted")
+        except Exception:
+            pass
+        return "granted"
+
+
+def _write_notification_state(state):
+    """持久化通知权限状态。"""
+    try:
+        NOTIFICATION_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cfg = {}
+        if NOTIFICATION_CONFIG_PATH.exists():
+            try:
+                cfg = json.loads(NOTIFICATION_CONFIG_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        cfg["notificationPermission"] = state
+        NOTIFICATION_CONFIG_PATH.write_text(
+            json.dumps(cfg, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _send_windows_toast(title, body):
+    """通过 WinRT 发送 Windows Toast 通知。"""
+    import uuid
+    try:
+        from winrt.windows.ui.notifications import ToastNotificationManager, ToastNotification
+        from winrt.windows.data.xml.dom import XmlDocument
+        template = (
+            '<toast launch="claude-desktop">'
+            '<visual><binding template="ToastText02">'
+            f'<text id="1">{title}</text>'
+            f'<text id="2">{body}</text>'
+            '</binding></visual>'
+            '</toast>'
+        )
+        doc = XmlDocument()
+        doc.load_xml(template)
+        toast = ToastNotification(doc)
+        toast.id = str(uuid.uuid4())
+        # 使用 pythonw.exe 的 AUMID（通用 Python 应用的 notification identity）
+        notifier = ToastNotificationManager.create_toast_notifier("Claude.Desktop")
+        notifier.show(toast)
+        return True
+    except Exception:
+        return False
 
 
 def start_cc_haha_server():
@@ -49,12 +117,16 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         p = self._path()
-        if p == "/api/skills":
+        if p.startswith("/mock/"):
+            self._serve_mock_module(p)
+        elif p == "/api/skills":
             self._serve_all_skills()
         elif p == "/api/vision-config":
             self._serve_vision_config()
         elif p == "/api/cc-connect-config":
             self._serve_cc_connect_config()
+        elif p == "/api/notification/permission":
+            self._serve_notification_permission()
         elif p == "/api/dialog/open-folder":
             self._open_folder_dialog()
         elif p.startswith("/api/filesystem/"):
@@ -70,6 +142,12 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
         p = self._path()
         if p == "/api/vision-config":
             self._save_vision_config()
+        elif p == "/api/notification/open-settings":
+            self._open_notification_settings()
+        elif p == "/api/notification/request":
+            self._request_notification_permission()
+        elif p == "/api/notification/send":
+            self._send_notification()
         elif p == "/api/cc-connect-config":
             self._save_cc_connect_config()
         elif p == "/api/cc-connect-restart":
@@ -119,6 +197,19 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             "</style>"
         )
 
+        importmap = (
+            '<script type="importmap">'
+            '{'
+            '"imports":{'
+            '"@tauri-apps/api/core":"/mock/tauri-api-core.js",'
+            '"@tauri-apps/plugin-notification":"/mock/tauri-plugin-notification.js",'
+            '"@tauri-apps/plugin-shell":"/mock/tauri-plugin-shell.js",'
+            '"@tauri-apps/api/window":"/mock/tauri-api-window.js",'
+            '"@tauri-apps/api/event":"/mock/tauri-api-event.js"'
+            '}'
+            '}'
+            '</script>'
+        )
         js = (
             "<script>"
             "(function(){"
@@ -147,8 +238,10 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             "window.__TAURI_INTERNALS__={"
             "invoke:function(cmd,args){"
             "if(cmd==='get_server_url')return Promise.resolve(S);"
-            "if(cmd==='plugin:notification|is_permission_granted')return Promise.resolve(false);"
-            "if(cmd==='plugin:notification|request_permission')return Promise.resolve('denied');"
+            "if(cmd==='plugin:notification|is_permission_granted'){return fetch('/api/notification/permission').then(function(r){return r.json()}).then(function(d){return d.granted});}"
+            "if(cmd==='plugin:notification|request_permission'){return fetch('/api/notification/request',{method:'POST'}).then(function(r){return r.json()}).then(function(d){return d.permission});}"
+            "if(cmd==='plugin:notification|send'){return fetch('/api/notification/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args||{})}).then(function(r){return r.json()}).then(function(d){return d.ok});}"
+            "if(cmd==='open_windows_notification_settings'){return fetch('/api/notification/open-settings',{method:'POST'}).then(function(r){return r.json()}).then(function(d){return d.ok});}"
             "if(cmd==='macos_notification_permission_state')return Promise.resolve(null);"
             "if(cmd==='macos_request_notification_permission')return Promise.resolve(null);"
             "if(cmd==='macos_send_notification')return Promise.resolve(false);"
@@ -186,12 +279,59 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             "</script>"
         )
 
-        inject = css + js
+        inject = importmap + css + js
         html = html.replace("</head>", inject + "\n</head>")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
+
+    def _serve_mock_module(self, path):
+        """Serve mock Tauri modules for the webview, bridging to __TAURI_INTERNALS__."""
+        mocks = {
+            "/mock/tauri-api-core.js": (
+                "var i=window.__TAURI_INTERNALS__;"
+                "export function invoke(cmd,args){return i.invoke(cmd,args||{});}"
+                "export function convertFileSrc(p){return p;}"
+                "export function transformCallback(cb,once){return cb;}"
+            ),
+            "/mock/tauri-plugin-notification.js": (
+                "var i=window.__TAURI_INTERNALS__;"
+                "export function isPermissionGranted(){return i.invoke('plugin:notification|is_permission_granted');}"
+                "export function requestPermission(){return i.invoke('plugin:notification|request_permission');}"
+                "export function sendNotification(opts){return i.invoke('plugin:notification|send',opts||{});}"
+            ),
+            "/mock/tauri-plugin-shell.js": (
+                "var i=window.__TAURI_INTERNALS__;"
+                "export function open(url){"
+                "if(url&&url.startsWith('ms-settings:'))return i.invoke('open_windows_notification_settings');"
+                "try{window.open(url,'_blank','noopener,noreferrer');return true;}catch(e){return false;}"
+                "}"
+            ),
+            "/mock/tauri-api-window.js": (
+                "export var UserAttentionType={Critical:1,Informational:2};"
+                "export function getCurrentWindow(){"
+                "return{"
+                "requestUserAttention:function(){return Promise.resolve(true)},"
+                "show:function(){return Promise.resolve()},"
+                "setFocus:function(){return Promise.resolve()},"
+                "};}"
+            ),
+            "/mock/tauri-api-event.js": (
+                "export function listen(evt,handler){"
+                "if(evt==='desktop-notification-clicked')return window.__TAURI_INTERNALS__.event.listen(evt,handler);"
+                "return Promise.resolve(function(){});"
+                "}"
+            ),
+        }
+        content = mocks.get(path)
+        if content:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(content.encode("utf-8"))
+        else:
+            self.send_error(404)
 
     def _serve_all_skills(self):
         """从文件系统读取所有 skill，绕过 cc-haha 的过滤，并合并 Bun 返回的其他来源 skill"""
@@ -371,6 +511,7 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
 
     def _restart_cc_connect(self):
         """重启 cc-connect 进程"""
+        import shutil
         result = {"ok": False, "message": ""}
         try:
             # 杀掉旧的 node 进程
@@ -384,9 +525,7 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             _time.sleep(0.5)
             # 直接调 node 运行 cc-connect/run.js，跳过 .cmd 壳避免弹窗
             npm_dir = str(Path.home() / "AppData" / "Roaming" / "npm")
-            node_exe = Path(npm_dir) / "node.exe"
-            if not node_exe.exists():
-                node_exe = Path("node")  # fallback to PATH
+            node_exe = shutil.which("node") or "node"
             run_js = Path(npm_dir) / "node_modules" / "cc-connect" / "run.js"
             subprocess.Popen(
                 [str(node_exe), str(run_js)],
@@ -400,6 +539,57 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             result["message"] = str(e)
         body = json.dumps(result, ensure_ascii=False)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def _serve_notification_permission(self):
+        """返回通知权限状态"""
+        state = _read_notification_state()
+        body = json.dumps({"granted": state == "granted", "permission": state})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def _open_notification_settings(self):
+        """打开 Windows 系统通知设置"""
+        ok = False
+        try:
+            os.startfile("ms-settings:notifications")
+            ok = True
+        except Exception:
+            pass
+        body = json.dumps({"ok": ok})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def _request_notification_permission(self):
+        """请求通知权限。WinRT 检测状态或默认授权。"""
+        state = _read_notification_state()
+        if state != "denied":
+            state = "granted"
+            _write_notification_state(state)
+        body = json.dumps({"permission": state})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
+    def _send_notification(self):
+        """发送测试通知"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length)) if length > 0 else {}
+        except Exception:
+            data = {}
+        title = data.get("title", "Claude Desktop")
+        body_text = data.get("body", "")
+        ok = _send_windows_toast(title, body_text)
+        body = json.dumps({"ok": ok})
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
@@ -545,6 +735,26 @@ def start_terminal_backend():
     return proc
 
 
+def start_cc_connect():
+    """启动 cc-connect IM 桥接进程"""
+    import shutil
+    npm_dir = str(Path.home() / "AppData" / "Roaming" / "npm")
+    run_js = Path(npm_dir) / "node_modules" / "cc-connect" / "run.js"
+    node_exe = shutil.which("node")
+    if not node_exe:
+        print("警告: 找不到 node.exe，跳过 cc-connect 启动")
+        return None
+    proc = subprocess.Popen(
+        [node_exe, str(run_js)],
+        cwd=str(Path.home() / ".cc-connect"),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    print("cc-connect 已启动")
+    return proc
+
+
 def _esc(v: str) -> str:
     """转义 TOML 字符串中的反斜杠"""
     return v.replace("\\", "\\\\")
@@ -634,6 +844,32 @@ def _build_cc_connect_toml(cfg: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _set_window_icon():
+    """在后台线程中等待窗口创建，通过 Win32 API 设置窗口图标"""
+    import ctypes
+    import ctypes.wintypes
+
+    icon_path = str(Path(__file__).parent / "app-icon.ico")
+    # 等待窗口出现（最多等 5 秒）
+    for _ in range(50):
+        time.sleep(0.1)
+        hwnd = ctypes.windll.user32.FindWindowW(None, "Claude Desktop")
+        if hwnd:
+            break
+    else:
+        return
+
+    # IMAGE_ICON=1, LR_LOADFROMFILE=0x10
+    flags = 0x10
+    icon_big = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 0, 0, flags)
+    icon_small = ctypes.windll.user32.LoadImageW(0, icon_path, 1, 32, 32, flags)
+    # WM_SETICON=0x80, ICON_BIG=1, ICON_SMALL=0
+    if icon_big:
+        ctypes.windll.user32.SendMessageW(hwnd, 0x80, 1, icon_big)
+    if icon_small:
+        ctypes.windll.user32.SendMessageW(hwnd, 0x80, 0, icon_small)
+
+
 def main():
     if not DIST_DIR.exists():
         print("错误: 前端未构建")
@@ -651,8 +887,10 @@ def main():
 
     start_frontend_server()
     term_proc = start_terminal_backend()
+    cc_connect_proc = start_cc_connect()
 
     import webview
+
     webview.create_window(
         "Claude Desktop",
         f"http://127.0.0.1:{FRONTEND_PORT}",
@@ -661,16 +899,26 @@ def main():
         min_size=(1060, 640),
         text_select=True,
     )
+
+    # 启动后台线程，窗口出现后自动设置图标
+    threading.Thread(target=_set_window_icon, daemon=True).start()
+
     webview.start(debug=False)
 
     api_proc.terminate()
     term_proc.terminate()
+    if cc_connect_proc:
+        cc_connect_proc.terminate()
     try:
         api_proc.wait(timeout=5)
         term_proc.wait(timeout=5)
+        if cc_connect_proc:
+            cc_connect_proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         api_proc.kill()
         term_proc.kill()
+        if cc_connect_proc:
+            cc_connect_proc.kill()
 
 
 if __name__ == "__main__":
