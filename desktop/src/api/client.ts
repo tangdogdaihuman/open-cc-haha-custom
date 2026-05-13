@@ -75,7 +75,7 @@ async function request<T>(method: string, path: string, body?: unknown, options?
     clearTimeout(timeout)
 
     if (!res.ok) {
-      const errorBody = await res.json().catch(() => res.text())
+      const errorBody = await res.clone().json().catch(() => res.text())
       throw new ApiError(res.status, errorBody)
     }
 
