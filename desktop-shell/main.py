@@ -148,6 +148,8 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             self._request_notification_permission()
         elif p == "/api/notification/send":
             self._send_notification()
+        elif p == "/api/terminal/cwd-update":
+            self._proxy_terminal_cwd_update()
         elif p == "/api/cc-connect-config":
             self._save_cc_connect_config()
         elif p == "/api/cc-connect-restart":
@@ -227,6 +229,9 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             "try{var m=JSON.parse(e.data);"
             "if(m.type==='output'&&termListeners.output)termListeners.output({payload:{session_id:m.session_id,data:m.data}});"
             "if(m.type==='exit'&&termListeners.exit)termListeners.exit({payload:{session_id:m.session_id,code:m.code}});"
+            "if(m.type==='cwd-change'&&m.ccSessionId){"
+            "fetch('http://127.0.0.1:" + str(FRONTEND_PORT) + "/api/terminal/cwd-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:m.ccSessionId,cwd:m.cwd})}).catch(function(){});"
+            "}"
             "if(m.type==='spawn'&&termListeners.spawnResolve){"
             "termListeners.spawnResolve({session_id:m.session_id,shell:m.shell||'powershell',cwd:m.cwd||''});"
             "delete termListeners.spawnResolve;"
@@ -249,7 +254,7 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
             "return new Promise(function(resolve){"
             "termConnect();"
             "termListeners.spawnResolve=resolve;"
-            "var spawnMsg=JSON.stringify({command:'spawn',cols:args.cols||80,rows:args.rows||24,cwd:args.cwd});"
+            "var spawnMsg=JSON.stringify({command:'spawn',cols:args.cols||80,rows:args.rows||24,cwd:args.cwd,sessionId:args.sessionId});"
             "if(termWs.readyState===WebSocket.OPEN)termWs.send(spawnMsg);"
             "else termWs.onopen=function(){termWs.send(spawnMsg)};"
             "});"
@@ -552,6 +557,36 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
         self.wfile.write(body.encode("utf-8"))
+
+    def _proxy_terminal_cwd_update(self):
+        """代理终端 cwd 变更到 Bun 后端，更新 session workDir"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(length)) if length > 0 else {}
+            session_id = data.get("sessionId", "")
+            cwd = data.get("cwd", "")
+            if not session_id or not cwd:
+                self.send_error(400, "Missing sessionId or cwd")
+                return
+            # 转发到 Bun API
+            url = f"http://127.0.0.1:{API_PORT}/api/sessions/{session_id}/workdir"
+            req_body = json.dumps({"workDir": cwd}).encode("utf-8")
+            req = urllib.request.Request(url, data=req_body, method="PATCH")
+            req.add_header("Content-Type", "application/json")
+            resp = urllib.request.urlopen(req, timeout=5)
+            self.send_response(resp.status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(resp.read())
+        except Exception as e:
+            try:
+                body = json.dumps({"ok": False, "error": str(e)})
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+            except Exception:
+                pass
 
     def _open_notification_settings(self):
         """打开 Windows 系统通知设置"""

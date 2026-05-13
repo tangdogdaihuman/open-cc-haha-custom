@@ -167,6 +167,16 @@ export async function handleSessionsApi(
       return await handleSessionWorkspaceRoute(sessionId, url, segments[4])
     }
 
+    if (subResource === 'workdir') {
+      if (req.method !== 'PATCH') {
+        return Response.json(
+          { error: 'METHOD_NOT_ALLOWED', message: `Method ${req.method} not allowed` },
+          { status: 405 },
+        )
+      }
+      return await updateSessionWorkDir(req, sessionId)
+    }
+
     // Route to conversations handler if sub-resource is 'chat'
     if (subResource === 'chat') {
       // This is handled by the conversations API, but in case the router
@@ -744,6 +754,21 @@ async function patchSession(req: Request, sessionId: string): Promise<Response> 
 
   await sessionService.renameSession(sessionId, body.title)
   return Response.json({ ok: true })
+}
+
+async function updateSessionWorkDir(req: Request, sessionId: string): Promise<Response> {
+  let body: { workDir?: string }
+  try {
+    body = (await req.json()) as { workDir?: string }
+  } catch {
+    throw ApiError.badRequest('Invalid JSON body')
+  }
+  if (!body.workDir || typeof body.workDir !== 'string') {
+    throw ApiError.badRequest('workDir must be a non-empty string')
+  }
+  conversationService.updateSessionWorkDir(sessionId, body.workDir)
+  void sessionService.appendSessionMetadata(sessionId, { workDir: body.workDir })
+  return Response.json({ ok: true, workDir: body.workDir })
 }
 
 type RecentProjectEntry = {

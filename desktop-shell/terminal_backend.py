@@ -2,19 +2,23 @@
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 
 PORT = 18925
+CWD_MARKER = "__CC_CWD__"
 
 
 class TermSession:
-    def __init__(self, sid, cols, rows, cwd):
+    def __init__(self, sid, cols, rows, cwd, cc_session_id=None):
         self.sid = sid
         self.cols = cols
         self.rows = rows
         self.cwd = cwd or os.path.expanduser("~")
+        self.cc_session_id = cc_session_id  # cc-haha 的会话 ID
         self.proc = None
+        self._last_cwd = self.cwd
 
     async def spawn(self):
         env = os.environ.copy()
@@ -36,6 +40,13 @@ class TermSession:
     async def write(self, data):
         if self.proc and self.proc.stdin:
             self.proc.stdin.write(data.encode("utf-8"))
+            await self.proc.stdin.drain()
+
+    async def probe_cwd(self):
+        """注入隐藏 cwd 探针，不会显示在终端输出中"""
+        if self.proc and self.proc.stdin:
+            probe = f'\nWrite-Host "{CWD_MARKER}$((Get-Location).Path){CWD_MARKER}"\n'
+            self.proc.stdin.write(probe.encode("utf-8"))
             await self.proc.stdin.drain()
 
     async def read(self):
@@ -66,18 +77,45 @@ async def handle(ws):
     session = None
     reader_task = None
 
+    def strip_and_emit_cwd(data):
+        """从输出中提取 cwd 探针，返回 (清洗后数据, cwd是否变化)"""
+        changed = False
+        marker = re.escape(CWD_MARKER)
+        m = re.search(rf'{marker}(.+?){marker}', data)
+        if m:
+            new_cwd = m.group(1)
+            if new_cwd and new_cwd != session._last_cwd:
+                session._last_cwd = new_cwd
+                session.cwd = new_cwd
+                changed = True
+        # 移除探针行
+        cleaned = re.sub(rf'{marker}.+?{marker}\r?\n?', '', data)
+        return cleaned, changed
+
     async def reader():
         while session:
             data = await session.read()
             if data:
-                try:
-                    await ws.send(json.dumps({
-                        "type": "output",
-                        "session_id": session.sid,
-                        "data": data,
-                    }))
-                except Exception:
-                    break
+                output, cwd_changed = strip_and_emit_cwd(data)
+                if cwd_changed:
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "cwd-change",
+                            "session_id": session.sid,
+                            "cwd": session.cwd,
+                            "ccSessionId": session.cc_session_id,
+                        }))
+                    except Exception:
+                        pass
+                if output:
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "output",
+                            "session_id": session.sid,
+                            "data": output,
+                        }))
+                    except Exception:
+                        break
             else:
                 await asyncio.sleep(0.05)
         if session:
@@ -101,6 +139,7 @@ async def handle(ws):
                 try:
                     session = TermSession(
                         1, m.get("cols", 80), m.get("rows", 24), m.get("cwd"),
+                        cc_session_id=m.get("sessionId"),
                     )
                     await session.spawn()
                     await ws.send(json.dumps({
@@ -121,6 +160,8 @@ async def handle(ws):
 
             elif cmd == "write" and session:
                 await session.write(m.get("data", ""))
+                # 注入 cwd 探针，追踪 cd 后的工作目录变化
+                await session.probe_cwd()
 
             elif cmd == "resize" and session:
                 session.cols = m.get("cols", 80)
