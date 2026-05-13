@@ -11,6 +11,7 @@ import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { RepositoryLaunchControls } from '../components/shared/RepositoryLaunchControls'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
 import { ModelSelector } from '../components/controls/ModelSelector'
+import { EffortSelector } from '../components/controls/EffortSelector'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
 import { ContextUsageIndicator } from '../components/chat/ContextUsageIndicator'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
@@ -714,6 +715,7 @@ export function EmptySession() {
                   draft
                   compact={isMobileComposer}
                 />
+                <EffortSelector />
                 <ModelSelector runtimeKey={DRAFT_RUNTIME_SELECTION_KEY} disabled={isSubmitting} compact={isMobileComposer} />
                 <button
                   onClick={handleSubmit}

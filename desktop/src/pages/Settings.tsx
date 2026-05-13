@@ -1,6 +1,4 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import QRCode from 'qrcode'
-import { Copy, Eye, EyeOff, PowerOff, QrCode, RotateCw } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useTranslation } from '../i18n'
@@ -25,14 +23,15 @@ import { usePluginStore } from '../stores/pluginStore'
 import { PluginList } from '../components/plugins/PluginList'
 import { PluginDetail } from '../components/plugins/PluginDetail'
 import { ComputerUseSettings } from './ComputerUseSettings'
+import { DeepSeekSettings } from './DeepSeekSettings'
+import { CcConnectSettings } from './CcConnectSettings'
 import { McpSettings } from './McpSettings'
 import { TerminalSettings } from './TerminalSettings'
 import { DiagnosticsSettings } from './DiagnosticsSettings'
 import { ActivitySettings } from './ActivitySettings'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
 import { ClaudeOfficialLogin } from '../components/settings/ClaudeOfficialLogin'
-import { useUpdateStore } from '../stores/updateStore'
-import { formatBytes } from '../lib/formatBytes'
+
 import { isTauriRuntime } from '../lib/desktopRuntime'
 import {
   getDesktopNotificationPermission,
@@ -48,23 +47,6 @@ import {
   stripProviderSettingsJsonEnv,
 } from '../lib/providerSettingsJson'
 import { copyTextToClipboard } from '../components/chat/clipboard'
-
-function buildH5LaunchUrl(baseUrl: string | null, token: string | null): string | null {
-  if (!baseUrl) return null
-
-  try {
-    const url = new URL(baseUrl)
-    if (token) {
-      url.searchParams.set('serverUrl', baseUrl)
-      url.searchParams.set('h5Token', token)
-    }
-    return url.toString().replace(/\/$/, '')
-  } catch {
-    return token
-      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}serverUrl=${encodeURIComponent(baseUrl)}&h5Token=${encodeURIComponent(token)}`
-      : baseUrl
-  }
-}
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -86,7 +68,6 @@ export function Settings() {
             <TabButton icon="dns" label={t('settings.tab.providers')} active={activeTab === 'providers'} onClick={() => setActiveTab('providers')} />
             <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
             <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
-            <TabButton icon="qr_code_2" label={t('settings.tab.h5Access')} active={activeTab === 'h5Access'} onClick={() => setActiveTab('h5Access')} />
             <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
             <TabButton icon="terminal" label={t('settings.tab.terminal')} active={activeTab === 'terminal'} onClick={() => setActiveTab('terminal')} />
             <TabButton icon="dns" label={t('settings.tab.mcp')} active={activeTab === 'mcp'} onClick={() => setActiveTab('mcp')} />
@@ -94,6 +75,8 @@ export function Settings() {
             <TabButton icon="auto_awesome" label={t('settings.tab.skills')} active={activeTab === 'skills'} onClick={() => setActiveTab('skills')} />
             <TabButton icon="extension" label={t('settings.tab.plugins')} active={activeTab === 'plugins'} onClick={() => setActiveTab('plugins')} />
             <TabButton icon="mouse" label={t('settings.tab.computerUse')} active={activeTab === 'computerUse'} onClick={() => setActiveTab('computerUse')} />
+            <TabButton icon="visibility" label={t('settings.tab.deepseek')} active={activeTab === 'deepseek'} onClick={() => setActiveTab('deepseek')} />
+            <TabButton icon="hub" label="IM 连接 (cc-connect)" active={activeTab === 'ccConnect'} onClick={() => setActiveTab('ccConnect')} />
             <TabButton icon="monitoring" label={t('settings.tab.activity')} active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} />
             <TabButton icon="monitor_heart" label={t('settings.tab.diagnostics')} active={activeTab === 'diagnostics'} onClick={() => setActiveTab('diagnostics')} />
           </div>
@@ -108,7 +91,6 @@ export function Settings() {
           {activeTab === 'permissions' && <PermissionSettings />}
           {activeTab === 'activity' && <ActivitySettings />}
           {activeTab === 'general' && <GeneralSettings />}
-          {activeTab === 'h5Access' && <H5AccessSettings />}
           {activeTab === 'adapters' && <AdapterSettings />}
           {activeTab === 'terminal' && <TerminalSettings />}
           {activeTab === 'mcp' && <McpSettings />}
@@ -116,6 +98,8 @@ export function Settings() {
           {activeTab === 'skills' && <SkillSettings />}
           {activeTab === 'plugins' && <PluginSettings />}
           {activeTab === 'computerUse' && <ComputerUseSettings />}
+          {activeTab === 'deepseek' && <DeepSeekSettings />}
+          {activeTab === 'ccConnect' && <CcConnectSettings />}
           {activeTab === 'diagnostics' && <DiagnosticsSettings />}
           {activeTab === 'about' && <AboutSettings />}
         </div>
@@ -1380,18 +1364,29 @@ function GeneralSettings() {
     setDesktopNotificationsEnabled,
     webSearch,
     setWebSearch,
+    h5Access,
+    h5AccessError,
+    updateH5AccessSettings,
     responseLanguage,
     setResponseLanguage,
   } = useSettingsStore()
   const t = useTranslation()
   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
+  const [h5PublicBaseUrlDraft, setH5PublicBaseUrlDraft] = useState(h5Access.publicBaseUrl ?? '')
   const [notificationPermission, setNotificationPermission] = useState<DesktopNotificationPermission>('default')
   const [notificationActionRunning, setNotificationActionRunning] = useState(false)
+  const [h5ActionRunning, setH5ActionRunning] = useState(false)
   const webSearchDirty = JSON.stringify(webSearchDraft) !== JSON.stringify(webSearch)
+  const h5AccessUrl = h5Access.publicBaseUrl
+  const h5AccessDirty = h5PublicBaseUrlDraft.trim() !== (h5Access.publicBaseUrl ?? '')
 
   useEffect(() => {
     setWebSearchDraft(webSearch)
   }, [webSearch])
+
+  useEffect(() => {
+    setH5PublicBaseUrlDraft(h5Access.publicBaseUrl ?? '')
+  }, [h5Access])
 
   useEffect(() => {
     let cancelled = false
@@ -1407,6 +1402,7 @@ function GeneralSettings() {
     low: t('settings.general.effort.low'),
     medium: t('settings.general.effort.medium'),
     high: t('settings.general.effort.high'),
+    xhigh: t('settings.general.effort.xhigh'),
     max: t('settings.general.effort.max'),
   }
 
@@ -1445,7 +1441,6 @@ function GeneralSettings() {
   const THEMES: Array<{ value: ThemeMode; label: string }> = [
     { value: 'light', label: t('settings.general.appearance.light') },
     { value: 'dark', label: t('settings.general.appearance.dark') },
-    { value: 'white', label: t('settings.general.appearance.white') },
   ]
 
   const WEB_SEARCH_MODES: Array<{ value: WebSearchMode; label: string }> = [
@@ -1508,6 +1503,30 @@ function GeneralSettings() {
     }
   }
 
+  const runH5Action = async (action: () => Promise<void>) => {
+    setH5ActionRunning(true)
+    try {
+      await action()
+    } catch {
+      // The store owns H5-specific error state.
+    } finally {
+      setH5ActionRunning(false)
+    }
+  }
+
+  const handleH5SettingsSave = async () => {
+    await runH5Action(async () => {
+      await updateH5AccessSettings({
+        publicBaseUrl: h5PublicBaseUrlDraft.trim() || null,
+      })
+    })
+  }
+
+  const handleH5UrlCopy = async () => {
+    if (!h5AccessUrl) return
+    await copyTextToClipboard(h5AccessUrl)
+  }
+
   return (
     <div className="max-w-xl">
       {/* Appearance selector */}
@@ -1518,7 +1537,6 @@ function GeneralSettings() {
           <button
             key={value}
             onClick={() => void setTheme(value)}
-            aria-pressed={theme === value}
             className={`flex-1 py-2 text-xs font-semibold rounded-lg border transition-all ${
               theme === value
                 ? 'bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] border-transparent shadow-[var(--shadow-button-primary)]'
@@ -1575,7 +1593,7 @@ function GeneralSettings() {
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.effortTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.effortDescription')}</p>
       <div className="flex gap-2">
-        {(['low', 'medium', 'high', 'max'] as EffortLevel[]).map((level) => (
+        {(['low', 'medium', 'high', 'xhigh', 'max'] as EffortLevel[]).map((level) => (
           <button
             key={level}
             onClick={() => setEffort(level)}
@@ -1776,340 +1794,77 @@ function GeneralSettings() {
         </div>
       </div>
 
-    </div>
-  )
-}
-
-// ─── H5 Access Settings ──────────────────────────────────────
-
-function H5AccessSettings() {
-  const {
-    h5Access,
-    h5AccessError,
-    enableH5Access,
-    disableH5Access,
-    regenerateH5AccessToken,
-    updateH5AccessSettings,
-  } = useSettingsStore()
-  const t = useTranslation()
-  const [h5PublicBaseUrlDraft, setH5PublicBaseUrlDraft] = useState(h5Access.publicBaseUrl ?? '')
-  const [h5GeneratedToken, setH5GeneratedToken] = useState<string | null>(null)
-  const [h5TokenVisible, setH5TokenVisible] = useState(false)
-  const [h5EnableConfirmOpen, setH5EnableConfirmOpen] = useState(false)
-  const [h5QrDataUrl, setH5QrDataUrl] = useState<string | null>(null)
-  const [h5ActionRunning, setH5ActionRunning] = useState(false)
-  const h5AccessUrl = h5Access.publicBaseUrl
-  const h5LaunchUrl = useMemo(
-    () => buildH5LaunchUrl(h5AccessUrl, h5GeneratedToken),
-    [h5AccessUrl, h5GeneratedToken],
-  )
-  const h5AccessDirty = h5PublicBaseUrlDraft.trim() !== (h5Access.publicBaseUrl ?? '')
-
-  useEffect(() => {
-    setH5PublicBaseUrlDraft(h5Access.publicBaseUrl ?? '')
-  }, [h5Access])
-
-  useEffect(() => {
-    let cancelled = false
-    if (!h5Access.enabled || !h5LaunchUrl || !h5GeneratedToken) {
-      setH5QrDataUrl(null)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    QRCode.toDataURL(h5LaunchUrl, { margin: 1, width: 192 })
-      .then((dataUrl) => {
-        if (!cancelled) setH5QrDataUrl(dataUrl)
-      })
-      .catch(() => {
-        if (!cancelled) setH5QrDataUrl(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [h5Access.enabled, h5LaunchUrl, h5GeneratedToken])
-
-  const runH5Action = async (action: () => Promise<void>) => {
-    setH5ActionRunning(true)
-    try {
-      await action()
-    } catch {
-      // The store owns H5-specific error state.
-    } finally {
-      setH5ActionRunning(false)
-    }
-  }
-
-  const handleH5SettingsSave = async () => {
-    await runH5Action(async () => {
-      await updateH5AccessSettings({
-        publicBaseUrl: h5PublicBaseUrlDraft.trim() || null,
-      })
-    })
-  }
-
-  const handleH5UrlCopy = async () => {
-    if (!h5AccessUrl) return
-    await copyTextToClipboard(h5AccessUrl)
-  }
-
-  const handleH5LaunchUrlCopy = async () => {
-    if (!h5LaunchUrl) return
-    await copyTextToClipboard(h5LaunchUrl)
-  }
-
-  const handleH5EnableConfirm = async () => {
-    await runH5Action(async () => {
-      const token = await enableH5Access()
-      setH5GeneratedToken(token)
-      setH5TokenVisible(false)
-      setH5EnableConfirmOpen(false)
-    })
-  }
-
-  const handleH5Disable = async () => {
-    await runH5Action(async () => {
-      await disableH5Access()
-      setH5GeneratedToken(null)
-      setH5TokenVisible(false)
-    })
-  }
-
-  const handleH5Regenerate = async () => {
-    await runH5Action(async () => {
-      const token = await regenerateH5AccessToken()
-      setH5GeneratedToken(token)
-      setH5TokenVisible(false)
-    })
-  }
-
-  return (
-    <div className="max-w-3xl">
-      <section aria-labelledby="h5-access-title" role="region">
-        <div className="mb-5 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] text-[var(--color-brand)]">
-            <QrCode className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <h2
-              id="h5-access-title"
-              className="text-base font-semibold text-[var(--color-text-primary)] mb-1"
-            >
-              {t('settings.general.h5AccessTitle')}
-            </h2>
-            <p className="text-sm text-[var(--color-text-tertiary)]">
-              {t('settings.general.h5AccessDescription')}
-            </p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <label className="flex min-w-0 items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 rounded border-[var(--color-border)] accent-[var(--color-primary)]"
-                checked={h5Access.enabled}
-                disabled={h5ActionRunning}
-                aria-label={t('settings.general.h5AccessEnabled')}
-                onChange={(event) => {
-                  if (event.target.checked) {
-                    setH5EnableConfirmOpen(true)
-                  } else {
-                    void handleH5Disable()
-                  }
-                }}
+      <div className="mt-8">
+        <section aria-labelledby="general-h5-access-title" role="region">
+          <h2
+            id="general-h5-access-title"
+            className="text-base font-semibold text-[var(--color-text-primary)] mb-1"
+          >
+            {t('settings.general.h5AccessTitle')}
+          </h2>
+          <p className="text-sm text-[var(--color-text-tertiary)] mb-3">
+            {t('settings.general.h5AccessDescription')}
+          </p>
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-4">
+            <div className="grid grid-cols-1 gap-3">
+              <Input
+                id="h5-access-public-url"
+                label={t('settings.general.h5AccessPublicUrl')}
+                value={h5PublicBaseUrlDraft}
+                placeholder={t('settings.general.h5AccessPublicUrlPlaceholder')}
+                onChange={(event) => setH5PublicBaseUrlDraft(event.target.value)}
               />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-[var(--color-text-primary)]">
-                  {t('settings.general.h5AccessEnabled')}
-                </span>
-                <span className="mt-1 block text-xs leading-5 text-[var(--color-text-tertiary)]">
-                  {t('settings.general.h5AccessEnabledHint')}
-                </span>
-              </span>
-            </label>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                h5Access.enabled
-                  ? 'bg-[var(--color-success)]/10 text-[var(--color-success)]'
-                  : 'bg-[var(--color-surface)] text-[var(--color-text-tertiary)] border border-[var(--color-border)]'
-              }`}
-            >
-              {h5Access.enabled ? t('settings.general.h5AccessStatusEnabled') : t('settings.general.h5AccessDisabledValue')}
-            </span>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3">
-            <Input
-              id="h5-access-public-url"
-              label={t('settings.general.h5AccessPublicUrl')}
-              value={h5PublicBaseUrlDraft}
-              placeholder={t('settings.general.h5AccessPublicUrlPlaceholder')}
-              onChange={(event) => setH5PublicBaseUrlDraft(event.target.value)}
-            />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-[var(--color-text-tertiary)]">
-                {t('settings.general.h5AccessOpenHint')}
-              </p>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void handleH5SettingsSave()}
-                disabled={!h5AccessDirty || h5ActionRunning}
-                aria-label={t('settings.general.h5AccessSave')}
-              >
-                {t('settings.general.h5AccessSave')}
-              </Button>
-            </div>
-          </div>
-
-          {h5AccessUrl && (
-            <div className="mt-4 border-t border-[var(--color-border)]/60 pt-4">
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
-                    {t('settings.general.h5AccessUrl')}
-                  </div>
-                  <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] break-all">
-                    {h5AccessUrl}
-                  </div>
-                </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-[var(--color-text-tertiary)]">
+                  {t('settings.general.h5AccessOpenHint')}
+                </p>
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="shrink-0"
-                  icon={<Copy className="h-3.5 w-3.5" aria-hidden="true" />}
-                  aria-label={t('settings.general.h5AccessCopyUrl')}
-                  onClick={() => void handleH5UrlCopy()}
+                  onClick={() => void handleH5SettingsSave()}
+                  disabled={!h5AccessDirty || h5ActionRunning}
+                  aria-label={t('settings.general.h5AccessSave')}
                 >
-                  {t('settings.general.h5AccessCopy')}
+                  {t('settings.general.h5AccessSave')}
                 </Button>
               </div>
             </div>
-          )}
 
-          {h5Access.enabled && h5AccessUrl && (
-            <div className="mt-4 border-t border-[var(--color-border)]/60 pt-4">
-              <div className="flex flex-col gap-4 sm:flex-row">
-                <div className="flex h-48 w-48 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] bg-white p-3">
-                  {h5QrDataUrl ? (
-                    <img
-                      src={h5QrDataUrl}
-                      alt={t('settings.general.h5AccessQrAlt')}
-                      className="h-full w-full"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center gap-3 px-4 text-center">
-                      <QrCode className="h-12 w-12 text-neutral-400" aria-hidden="true" />
-                      <p className="text-xs leading-5 text-neutral-500">
-                        {t('settings.general.h5AccessQrEmptyHint')}
-                      </p>
+            {h5AccessUrl && (
+              <div className="mt-4 border-t border-[var(--color-border)]/60 pt-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+                      {t('settings.general.h5AccessUrl')}
                     </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">
-                    {t('settings.general.h5AccessQrTitle')}
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
-                    {h5GeneratedToken
-                      ? t('settings.general.h5AccessQrHint')
-                      : t('settings.general.h5AccessQrRefreshHint')}
-                  </p>
-                  {h5LaunchUrl && (
-                    <div className="mt-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] break-all">
-                      {h5LaunchUrl}
+                    <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] break-all">
+                      {h5AccessUrl}
                     </div>
-                  )}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon={<Copy className="h-3.5 w-3.5" aria-hidden="true" />}
-                      disabled={!h5LaunchUrl || !h5GeneratedToken}
-                      onClick={() => void handleH5LaunchUrlCopy()}
-                    >
-                      {t('settings.general.h5AccessCopyLaunchUrl')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={h5GeneratedToken ? 'secondary' : 'primary'}
-                      icon={<RotateCw className="h-3.5 w-3.5" aria-hidden="true" />}
-                      loading={h5ActionRunning}
-                      onClick={() => void handleH5Regenerate()}
-                    >
-                      {h5GeneratedToken ? t('settings.general.h5AccessRegenerate') : t('settings.general.h5AccessGenerateToken')}
-                    </Button>
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {h5Access.enabled && (
-            <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">
-                    {t('settings.general.h5AccessTokenPreview')}
-                  </div>
-                  <div className="mt-1 break-all text-sm text-[var(--color-text-primary)]">
-                    {h5TokenVisible && h5GeneratedToken
-                      ? h5GeneratedToken
-                      : h5Access.tokenPreview || t('settings.general.h5AccessTokenNotAvailable')}
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
                   <Button
                     size="sm"
                     variant="secondary"
-                    icon={h5TokenVisible ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
-                    disabled={!h5GeneratedToken}
-                    onClick={() => setH5TokenVisible((visible) => !visible)}
+                    className="shrink-0"
+                    aria-label={t('settings.general.h5AccessCopyUrl')}
+                    onClick={() => void handleH5UrlCopy()}
                   >
-                    {h5TokenVisible ? t('settings.general.h5AccessHideToken') : t('settings.general.h5AccessShowToken')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    icon={<PowerOff className="h-3.5 w-3.5" aria-hidden="true" />}
-                    loading={h5ActionRunning}
-                    onClick={() => void handleH5Disable()}
-                  >
-                    {t('settings.general.h5AccessDisable')}
+                    {t('settings.general.h5AccessCopy')}
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <p className="mt-4 text-xs text-[var(--color-text-tertiary)] leading-5">
-            {t('settings.general.h5AccessSafetyNote')}
-          </p>
-          {h5AccessError && (
-            <p className="mt-2 text-xs text-[var(--color-error)]">
-              {h5AccessError}
+            <p className="mt-4 text-xs text-[var(--color-text-tertiary)] leading-5">
+              {t('settings.general.h5AccessSafetyNote')}
             </p>
-          )}
-        </div>
-      </section>
-
-      <ConfirmDialog
-        open={h5EnableConfirmOpen}
-        onClose={() => {
-          if (!h5ActionRunning) setH5EnableConfirmOpen(false)
-        }}
-        onConfirm={handleH5EnableConfirm}
-        title={t('settings.general.h5AccessConfirmTitle')}
-        body={t('settings.general.h5AccessConfirmBody')}
-        confirmLabel={t('settings.general.h5AccessConfirmEnable')}
-        cancelLabel={t('common.cancel')}
-        confirmVariant="danger"
-        loading={h5ActionRunning}
-      />
+            {h5AccessError && (
+              <p className="mt-2 text-xs text-[var(--color-error)]">
+                {h5AccessError}
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   )
 }
@@ -2670,7 +2425,7 @@ function PluginSettings() {
 // ─── About Settings ──────────────────────────────────────
 
 const GITHUB_REPO = 'https://github.com/NanmiCoder/cc-haha'
-const GITHUB_ISSUES = `${GITHUB_REPO}/issues`
+const CUSTOM_GITHUB_REPO = 'https://github.com/tangdogdaihuman/cc-haha-custom'
 const GITHUB_RELEASES = `${GITHUB_REPO}/releases`
 const AUTHOR_GITHUB = 'https://github.com/NanmiCoder'
 const SOCIAL_LINKS = [
@@ -2682,18 +2437,6 @@ const SOCIAL_LINKS = [
 function AboutSettings() {
   const t = useTranslation()
   const [version, setVersion] = useState('')
-  const updateStatus = useUpdateStore((s) => s.status)
-  const availableVersion = useUpdateStore((s) => s.availableVersion)
-  const releaseNotes = useUpdateStore((s) => s.releaseNotes)
-  const progressPercent = useUpdateStore((s) => s.progressPercent)
-  const downloadedBytes = useUpdateStore((s) => s.downloadedBytes)
-  const totalBytes = useUpdateStore((s) => s.totalBytes)
-  const error = useUpdateStore((s) => s.error)
-  const checkedAt = useUpdateStore((s) => s.checkedAt)
-  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates)
-  const installUpdate = useUpdateStore((s) => s.installUpdate)
-  const initialize = useUpdateStore((s) => s.initialize)
-
   useEffect(() => {
     let cancelled = false
 
@@ -2711,48 +2454,15 @@ function AboutSettings() {
     }
   }, [])
 
-  useEffect(() => {
-    void initialize()
-  }, [initialize])
-
   const openUrl = (url: string) => {
     import('@tauri-apps/plugin-shell').then((mod) => mod.open(url)).catch(() => window.open(url, '_blank'))
   }
-
-  const checkedAtText =
-    checkedAt
-      ? new Date(checkedAt).toLocaleString(undefined, {
-          hour: '2-digit',
-          minute: '2-digit',
-          month: 'short',
-          day: 'numeric',
-        })
-      : null
-
-  const hasKnownProgress = typeof totalBytes === 'number' && totalBytes > 0
-  const downloadedText = formatBytes(downloadedBytes)
-  const updateDescription =
-    updateStatus === 'checking'
-      ? t('update.checking')
-      : updateStatus === 'downloading'
-        ? hasKnownProgress
-          ? t('update.progress', { progress: String(progressPercent) })
-          : t('update.progressBytes', { downloaded: downloadedText })
-        : updateStatus === 'restarting'
-          ? t('update.restarting')
-          : updateStatus === 'available' && availableVersion
-            ? t('update.newVersion', { version: availableVersion })
-            : updateStatus === 'up-to-date'
-              ? t('update.upToDate', { version: version || t('update.currentVersionUnknown') })
-              : error
-                ? t('update.failed', { error })
-                : t('update.idle')
 
   return (
     <div className="w-full min-w-0 max-w-lg mx-auto flex flex-col items-center py-6">
       {/* Logo + App Name + Version */}
       <img src="/app-icon.png" alt="Claude Code Haha" className="w-20 h-20 mb-4" />
-      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Claude Code Haha</h1>
+      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Claude Code Haha（Customize）</h1>
       {version && (
         <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
           <span>{t('settings.about.version')} {version}</span>
@@ -2766,7 +2476,7 @@ function AboutSettings() {
         </div>
       )}
 
-      {/* GitHub Repo */}
+      {/* GitHub Repo — 上游 */}
       <div className="mt-6 w-full">
         <button
           onClick={() => openUrl(GITHUB_REPO)}
@@ -2780,103 +2490,18 @@ function AboutSettings() {
         </button>
       </div>
 
-      <div className="mt-4 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.updates')}</div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-1">
-              {t('settings.about.updatesDesc')}
-            </div>
+      {/* GitHub Repo — 本仓库 */}
+      <div className="mt-4 w-full">
+        <button
+          onClick={() => openUrl(CUSTOM_GITHUB_REPO)}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
+        >
+          <img src="/icons/github.svg" alt="GitHub" className="w-5 h-5 opacity-70" />
+          <div className="flex-1 text-left">
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">tangdogdaihuman/cc-haha-custom</div>
+            <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.customHint')}</div>
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void checkForUpdates()}
-            loading={updateStatus === 'checking'}
-          >
-            {t('update.checkNow')}
-          </Button>
-        </div>
-
-        <div className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-tertiary)]">
-                {t('settings.about.version')}
-              </div>
-              <div className="text-sm font-medium text-[var(--color-text-primary)] mt-1">
-                {version || t('update.currentVersionUnknown')}
-              </div>
-            </div>
-
-            {availableVersion && (
-              <div className="text-right">
-                <div className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-tertiary)]">
-                  {t('update.availableLabel')}
-                </div>
-                <div className="text-sm font-medium text-[var(--color-text-primary)] mt-1">
-                  {availableVersion}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <p className={`mt-3 text-sm ${error ? 'text-[var(--color-error)]' : 'text-[var(--color-text-secondary)]'}`}>
-            {updateDescription}
-          </p>
-
-          {checkedAtText && (
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-              {t('update.checkedAt', { time: checkedAtText })}
-            </p>
-          )}
-
-          {(updateStatus === 'downloading' || updateStatus === 'restarting') && (
-            <div className="mt-3">
-              <div className="h-1.5 bg-[var(--color-surface-container-low)] rounded-full overflow-hidden">
-                {hasKnownProgress || updateStatus === 'restarting' ? (
-                  <div
-                    className="h-full bg-[var(--color-text-accent)] transition-all duration-300"
-                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                  />
-                ) : (
-                  <div className="h-full w-1/3 rounded-full bg-[var(--color-text-accent)]/75 animate-pulse" />
-                )}
-              </div>
-              {!hasKnownProgress && updateStatus === 'downloading' && downloadedBytes > 0 && (
-                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
-                  {downloadedText}
-                </p>
-              )}
-            </div>
-          )}
-
-          {releaseNotes && availableVersion && (
-            <div className="mt-3 rounded-lg bg-[var(--color-surface-container-low)] px-3 py-3">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-tertiary)]">
-                {t('update.releaseNotes')}
-              </div>
-              <MarkdownRenderer
-                content={releaseNotes}
-                variant="document"
-                className="mt-2 text-[13px] leading-6 text-[var(--color-text-secondary)] [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_p]:text-[13px] [&_p]:leading-6"
-              />
-            </div>
-          )}
-
-          {availableVersion && (
-            <div className="mt-3 flex justify-end">
-              <Button
-                size="sm"
-                onClick={() => void installUpdate()}
-                loading={updateStatus === 'downloading' || updateStatus === 'restarting'}
-                disabled={updateStatus === 'checking'}
-              >
-                {updateStatus === 'restarting' ? t('update.restarting') : t('update.now')}
-              </Button>
-            </div>
-          )}
-        </div>
+        </button>
       </div>
 
       {/* Divider */}
@@ -2913,18 +2538,6 @@ function AboutSettings() {
         </div>
       </div>
 
-      <div className="mt-6 w-full">
-        <button
-          onClick={() => openUrl(GITHUB_ISSUES)}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
-        >
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">feedback</span>
-          <div className="flex-1 text-left">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.feedback')}</div>
-            <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.feedbackDesc')}</div>
-          </div>
-        </button>
-      </div>
     </div>
   )
 }

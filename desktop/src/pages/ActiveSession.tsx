@@ -11,12 +11,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useCLITaskStore } from '../stores/cliTaskStore'
 import { useTeamStore } from '../stores/teamStore'
 import { useWorkspacePanelStore } from '../stores/workspacePanelStore'
-import {
-  TERMINAL_PANEL_DEFAULT_HEIGHT,
-  TERMINAL_PANEL_MAX_HEIGHT,
-  TERMINAL_PANEL_MIN_HEIGHT,
-  useTerminalPanelStore,
-} from '../stores/terminalPanelStore'
+import { useTerminalPanelStore } from '../stores/terminalPanelStore'
 import { useTranslation } from '../i18n'
 import { MessageList } from '../components/chat/MessageList'
 import { ChatInput } from '../components/chat/ChatInput'
@@ -31,7 +26,6 @@ import { isTauriRuntime } from '../lib/desktopRuntime'
 
 const TASK_POLL_INTERVAL_MS = 1000
 const WORKSPACE_RESIZE_STEP = 32
-const TERMINAL_RESIZE_STEP = 24
 const CHAT_COLUMN_WITH_WORKSPACE_CLASS =
   'min-w-[320px] flex-1 border-r border-[var(--color-border)] bg-[var(--color-surface)]'
 
@@ -119,86 +113,6 @@ function WorkspaceResizeHandle() {
   )
 }
 
-function TerminalResizeHandle() {
-  const t = useTranslation()
-  const height = useTerminalPanelStore((state) => state.height)
-  const setHeight = useTerminalPanelStore((state) => state.setHeight)
-  const [dragState, setDragState] = useState<{ startY: number; startHeight: number } | null>(null)
-  const dragStateRef = useRef(dragState)
-
-  useEffect(() => {
-    dragStateRef.current = dragState
-  }, [dragState])
-
-  useEffect(() => {
-    if (!dragState) return
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const current = dragStateRef.current
-      if (!current) return
-      setHeight(current.startHeight + current.startY - event.clientY)
-    }
-
-    const handlePointerUp = () => {
-      setDragState(null)
-    }
-
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-    window.addEventListener('pointercancel', handlePointerUp)
-
-    return () => {
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-      window.removeEventListener('pointercancel', handlePointerUp)
-    }
-  }, [dragState, setHeight])
-
-  return (
-    <div
-      role="separator"
-      aria-label={t('terminal.resizePanel')}
-      aria-orientation="horizontal"
-      aria-valuemin={TERMINAL_PANEL_MIN_HEIGHT}
-      aria-valuemax={TERMINAL_PANEL_MAX_HEIGHT}
-      aria-valuenow={height}
-      tabIndex={0}
-      data-testid="terminal-resize-handle"
-      onPointerDown={(event) => {
-        if (event.button !== 0) return
-        event.preventDefault()
-        setDragState({ startY: event.clientY, startHeight: height })
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowUp') {
-          event.preventDefault()
-          setHeight(height + TERMINAL_RESIZE_STEP)
-        }
-        if (event.key === 'ArrowDown') {
-          event.preventDefault()
-          setHeight(height - TERMINAL_RESIZE_STEP)
-        }
-        if (event.key === 'Home') {
-          event.preventDefault()
-          setHeight(TERMINAL_PANEL_MIN_HEIGHT)
-        }
-        if (event.key === 'End') {
-          event.preventDefault()
-          setHeight(TERMINAL_PANEL_MAX_HEIGHT)
-        }
-      }}
-      onDoubleClick={() => setHeight(TERMINAL_PANEL_DEFAULT_HEIGHT)}
-      className="group flex h-2.5 shrink-0 cursor-row-resize items-center bg-[var(--color-surface)] outline-none focus-visible:bg-[var(--color-surface-container)]"
-    >
-      <div className="mx-3 h-px flex-1 rounded-full bg-[var(--color-border)] transition-colors group-hover:bg-[var(--color-border-focus)] group-focus-visible:bg-[var(--color-border-focus)]" />
-    </div>
-  )
-}
-
 export function ActiveSession() {
   const isMobileLayout = useMobileViewport() && !isTauriRuntime()
   const activeTabId = useTabStore((s) => s.activeTabId)
@@ -227,8 +141,6 @@ export function ActiveSession() {
       ? state.isPanelOpen(activeTabId)
       : false,
   )
-  const terminalPanelHeight = useTerminalPanelStore((state) => state.height)
-
   useEffect(() => {
     if (activeTabId && !isMemberSession) {
       connectToSession(activeTabId)
@@ -433,13 +345,15 @@ export function ActiveSession() {
             compact={showWorkspacePanel}
           />
 
-          {showTerminalPanel && activeTabId ? (
-            <div
+        </div>
+
+        {/* 右侧面板：终端 / 工作区 */}
+        {showTerminalPanel && activeTabId ? (
+          <div
               data-testid="session-terminal-panel"
-              className="flex shrink-0 flex-col border-t border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]"
-              style={{ height: terminalPanelHeight }}
+              className="flex min-h-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]"
+              style={{ width: '42%', minWidth: '320px', maxWidth: '60%' }}
             >
-              <TerminalResizeHandle />
               <TerminalSettings
                 active
                 docked
@@ -452,10 +366,7 @@ export function ActiveSession() {
                 onClose={() => useTerminalPanelStore.getState().closePanel(activeTabId)}
               />
             </div>
-          ) : null}
-        </div>
-
-        {showWorkspacePanel ? (
+          ) : showWorkspacePanel ? (
           <>
             <WorkspaceResizeHandle />
             <WorkspacePanel sessionId={activeTabId} />

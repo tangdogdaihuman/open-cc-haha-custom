@@ -36,6 +36,7 @@ export function CurrentTurnChangeCard({
   onUndo,
 }: CurrentTurnChangeCardProps) {
   const t = useTranslation()
+  const [collapsed, setCollapsed] = useState(true)
   const [expandedPath, setExpandedPath] = useState<string | null>(null)
   const [diffByPath, setDiffByPath] = useState<Record<string, DiffPreviewState>>({})
 
@@ -94,9 +95,6 @@ export function CurrentTurnChangeCard({
   const cardLabel = isLatest
     ? t('chat.turnChangesLatestCardLabel')
     : t('chat.turnChangesHistoricalCardLabel')
-  const subtitle = isLatest
-    ? t('chat.turnChangesLatestSubtitle')
-    : t('chat.turnChangesHistoricalSubtitle')
   const undoLabel = isLatest
     ? t('chat.turnChangesLatestUndo')
     : t('chat.turnChangesHistoricalUndo')
@@ -106,94 +104,102 @@ export function CurrentTurnChangeCard({
 
   return (
     <section
-      className="mx-auto mb-5 w-full max-w-[860px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm"
+      className="mx-auto mb-5 w-full max-w-[860px] overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]/60 bg-[var(--color-surface-container-lowest)] shadow-sm"
       aria-label={cardLabel}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-              {t('chat.turnChangesTitle', { count: files.length })}
-            </span>
-            <span className="font-mono text-sm font-semibold text-[var(--color-success)]">
-              +{checkpoint.code.insertions}
-            </span>
-            <span className="font-mono text-sm font-semibold text-[var(--color-error)]">
-              -{checkpoint.code.deletions}
-            </span>
-          </div>
-          <div className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">
-            {subtitle}
-          </div>
-        </div>
-
+      {/* Collapsed: compact one-line summary */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] transition-colors hover:bg-[var(--color-surface-hover)]/40"
+      >
+        <span className="material-symbols-outlined shrink-0 text-[13px] text-[var(--color-text-tertiary)]">
+          {collapsed ? 'chevron_right' : 'expand_more'}
+        </span>
+        <span className="text-[var(--color-text-tertiary)]">
+          {t('chat.turnChangesTitle', { count: files.length })}
+        </span>
+        <span className="font-mono font-medium text-[var(--color-success)]">
+          +{checkpoint.code.insertions}
+        </span>
+        <span className="font-mono font-medium text-[var(--color-error)]">
+          -{checkpoint.code.deletions}
+        </span>
+        <span className="flex-1" />
         <button
           type="button"
-          onClick={onUndo}
+          onClick={(e) => {
+            e.stopPropagation()
+            onUndo()
+          }}
           disabled={isUndoing}
           aria-label={undoAria}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-brand)]/40 hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-border)]/60 bg-[var(--color-surface)] px-2 text-[10px] font-medium text-[var(--color-text-tertiary)] transition-colors hover:border-[var(--color-brand)]/30 hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-brand)]/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <span className="material-symbols-outlined text-[15px]">undo</span>
+          <span className="material-symbols-outlined text-[12px]">undo</span>
           {isUndoing ? t('chat.turnChangesUndoing') : undoLabel}
         </button>
-      </div>
+      </button>
 
-      <div className="divide-y divide-[var(--color-border)]">
-        {files.map((fileEntry) => {
-          const isExpanded = expandedPath === fileEntry.apiPath
-          const diffState = diffByPath[fileEntry.apiPath]
-          return (
-            <div key={fileEntry.apiPath}>
-              <button
-                type="button"
-                onClick={() => toggleDiff(fileEntry)}
-                aria-label={t(
-                  isExpanded ? 'chat.turnChangesHideDiffAria' : 'chat.turnChangesShowDiffAria',
-                  { path: fileEntry.displayPath },
-                )}
-                className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]/35"
-              >
-                <span className="material-symbols-outlined shrink-0 text-[17px] text-[var(--color-text-tertiary)]">
-                  {isExpanded ? 'keyboard_arrow_down' : 'chevron_right'}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[13px]">
-                  {fileEntry.displayPath}
-                </span>
-              </button>
+      {!collapsed && (
+        <>
+          <div className="divide-y divide-[var(--color-border)]/60 border-t border-[var(--color-border)]/60">
+            {files.map((fileEntry) => {
+              const isExpanded = expandedPath === fileEntry.apiPath
+              const diffState = diffByPath[fileEntry.apiPath]
+              return (
+                <div key={fileEntry.apiPath}>
+                  <button
+                    type="button"
+                    onClick={() => toggleDiff(fileEntry)}
+                    aria-label={t(
+                      isExpanded ? 'chat.turnChangesHideDiffAria' : 'chat.turnChangesShowDiffAria',
+                      { path: fileEntry.displayPath },
+                    )}
+                    className="flex min-h-[34px] w-full items-center gap-2.5 px-3 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-brand)]/35"
+                  >
+                    <span className="material-symbols-outlined shrink-0 text-[15px] text-[var(--color-text-tertiary)]">
+                      {isExpanded ? 'keyboard_arrow_down' : 'chevron_right'}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                      {fileEntry.displayPath}
+                    </span>
+                  </button>
 
-              {isExpanded && (
-                <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-4 py-3">
-                  {diffState?.loading ? (
-                    <div className="text-xs text-[var(--color-text-tertiary)]">
-                      {t('chat.turnChangesDiffLoading')}
-                    </div>
-                  ) : diffState?.error ? (
-                    <div className="text-xs text-[var(--color-error)]">
-                      {diffState.error}
-                    </div>
-                  ) : diffState?.diff ? (
-                    <WorkspaceDiffSurface
-                      value={diffState.diff}
-                      path={fileEntry.displayPath}
-                      className="max-h-[430px] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-code-bg)]"
-                    />
-                  ) : (
-                    <div className="text-xs text-[var(--color-text-tertiary)]">
-                      {t('chat.turnChangesDiffUnavailable')}
+                  {isExpanded && (
+                    <div className="border-t border-[var(--color-border)]/60 bg-[var(--color-surface-container-lowest)] px-3 py-2.5">
+                      {diffState?.loading ? (
+                        <div className="text-xs text-[var(--color-text-tertiary)]">
+                          {t('chat.turnChangesDiffLoading')}
+                        </div>
+                      ) : diffState?.error ? (
+                        <div className="text-xs text-[var(--color-error)]">
+                          {diffState.error}
+                        </div>
+                      ) : diffState?.diff ? (
+                        <WorkspaceDiffSurface
+                          value={diffState.diff}
+                          path={fileEntry.displayPath}
+                          className="max-h-[430px] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-code-bg)]"
+                        />
+                      ) : (
+                        <div className="text-xs text-[var(--color-text-tertiary)]">
+                          {t('chat.turnChangesDiffUnavailable')}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
 
-      {error && (
-        <div className="border-t border-[var(--color-error)]/20 bg-[var(--color-error-container)]/18 px-4 py-3 text-xs text-[var(--color-error)]">
-          {error}
-        </div>
+          {error && (
+            <div className="border-t border-[var(--color-error)]/20 bg-[var(--color-error-container)]/18 px-3 py-2.5 text-xs text-[var(--color-error)]">
+              {error}
+            </div>
+          )}
+        </>
       )}
     </section>
   )

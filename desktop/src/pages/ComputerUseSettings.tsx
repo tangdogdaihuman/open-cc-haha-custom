@@ -535,6 +535,43 @@ export function ComputerUseSettings() {
                 />
               </div>
 
+              {/* Select all / deselect all */}
+              {installedApps.length > 0 && !appsLoading && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const toAdd = installedApps.filter(a => !authorizedBundleIds.has(a.bundleId))
+                      if (toAdd.length === 0) return
+                      const newSet = new Set(authorizedBundleIds)
+                      const newAuthorized = [...authorizedApps]
+                      for (const app of toAdd) {
+                        newSet.add(app.bundleId)
+                        newAuthorized.push({ bundleId: app.bundleId, displayName: app.displayName, authorizedAt: new Date().toISOString() })
+                      }
+                      setAuthorizedBundleIds(newSet)
+                      setAuthorizedApps(newAuthorized)
+                      computerUseApi.setAuthorizedApps({ authorizedApps: newAuthorized, grantFlags: { clipboardRead: clipboardAccess, clipboardWrite: clipboardAccess, systemKeyCombos: systemKeys } })
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                  >
+                    {t('settings.computerUse.selectAll')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (authorizedBundleIds.size === 0) return
+                      setAuthorizedBundleIds(new Set())
+                      setAuthorizedApps([])
+                      computerUseApi.setAuthorizedApps({ authorizedApps: [], grantFlags: { clipboardRead: clipboardAccess, clipboardWrite: clipboardAccess, systemKeyCombos: systemKeys } })
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                  >
+                    {t('settings.computerUse.deselectAll')}
+                  </button>
+                </div>
+              )}
+
               {/* App list */}
               {appsLoading ? (
                 <div className="py-6 text-center text-sm text-[var(--color-text-tertiary)]">

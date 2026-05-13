@@ -22,7 +22,7 @@ const CACHE_TTL = 30_000 // 30s
 const DESKTOP_WORKTREE_MARKER = '/.claude/worktrees/'
 
 function isTauriRuntime() {
-  return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
+  return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) && !(window as any).__PYWEBVIEW__
 }
 
 function projectNameFromPath(filePath: string) {
@@ -42,6 +42,7 @@ export function DirectoryPicker({ value, onChange, variant = 'chip', isGitProjec
   const [browseParent, setBrowseParent] = useState('')
   const [loading, setLoading] = useState(false)
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; direction: 'up' | 'down' } | null>(null)
+  const [directPath, setDirectPath] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const isMobileBrowser = useMobileViewport() && !isTauriRuntime()
@@ -119,16 +120,38 @@ export function DirectoryPicker({ value, onChange, variant = 'chip', isGitProjec
 
   const handleSelect = (path: string) => {
     onChange(path)
+    setDirectPath('')
     setIsOpen(false)
     setMode('recent')
     // Invalidate cache so next open reflects the new selection
     cachedProjects = null
   }
 
+  const handleDirectPath = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = directPath.trim()
+    if (trimmed) onChange(trimmed)
+    setDirectPath('')
+    setIsOpen(false)
+    setMode('recent')
+    cachedProjects = null
+  }
+
   const handleChooseFolder = async () => {
+    setIsOpen(false)
+    // pywebview: 调用原生 Windows 文件夹选择器
+    if ((window as any).__PYWEBVIEW__) {
+      try {
+        const res = await fetch('/api/dialog/open-folder')
+        const data = await res.json()
+        if (data.path) onChange(data.path)
+      } catch (err) {
+        console.error('[DirectoryPicker] Folder dialog failed:', err)
+      }
+      return
+    }
     if (isTauriRuntime()) {
-      // Desktop: native OS folder dialog
-      setIsOpen(false)
+      // Desktop Tauri: native OS folder dialog
       try {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const selected = await open({
@@ -220,6 +243,23 @@ export function DirectoryPicker({ value, onChange, variant = 'chip', isGitProjec
           })
         )}
       </div>
+      {/* Direct path input */}
+      <form onSubmit={handleDirectPath} className="flex items-center gap-2 border-t border-[var(--color-border)] px-4 py-2">
+        <input
+          type="text"
+          value={directPath}
+          onChange={(e) => setDirectPath(e.target.value)}
+          placeholder={t('dirPicker.enterPath') || '输入或粘贴路径...'}
+          className="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]/35"
+        />
+        <button
+          type="submit"
+          disabled={!directPath.trim()}
+          className="shrink-0 rounded-md bg-[var(--color-brand)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+        >
+          {t('common.select') || '选择'}
+        </button>
+      </form>
       <div className="border-t border-[var(--color-border)]">
         <button
           onClick={handleChooseFolder}
@@ -283,6 +323,18 @@ export function DirectoryPicker({ value, onChange, variant = 'chip', isGitProjec
         )}
       </div>
 
+      <form onSubmit={handleDirectPath} className="flex items-center gap-2 border-t border-[var(--color-border)] px-3 py-2">
+        <input
+          type="text"
+          value={directPath}
+          onChange={(e) => setDirectPath(e.target.value)}
+          placeholder={t('dirPicker.enterPath') || '输入或粘贴路径...'}
+          className="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]/35"
+        />
+        <button type="submit" disabled={!directPath.trim()} className="shrink-0 rounded-md bg-[var(--color-brand)] px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">
+          选择
+        </button>
+      </form>
       <div className="flex items-center justify-between border-t border-[var(--color-border)] px-3 py-2">
         <span className="truncate font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)]">{browsePath}</span>
         <button onClick={() => handleSelect(browsePath)} className="rounded-lg bg-[var(--color-brand)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">

@@ -46,9 +46,19 @@ export function StreamingIndicator() {
           {formatElapsed(elapsedSeconds)}
         </span>
       )}
+      {tokenUsage.input_tokens > 0 && (
+        <span className="text-[10px] text-[var(--color-text-tertiary)]">
+          {tokenUsage.output_tokens > 0 ? '' : ''}↑{tokenUsage.input_tokens}
+        </span>
+      )}
       {tokenUsage.output_tokens > 0 && (
         <span className="text-[10px] text-[var(--color-text-tertiary)]">
-          · ↓ {tokenUsage.output_tokens}
+          {tokenUsage.input_tokens > 0 ? ' ' : ''}↓{tokenUsage.output_tokens}
+        </span>
+      )}
+      {(tokenUsage.input_tokens > 0 || tokenUsage.output_tokens > 0) && (
+        <span className="text-[10px] font-medium text-[var(--color-text-accent)]">
+          {tokenUsage.input_tokens + tokenUsage.output_tokens}t
         </span>
       )}
     </div>

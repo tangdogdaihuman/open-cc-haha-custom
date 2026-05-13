@@ -8,7 +8,7 @@ import { DRAFT_RUNTIME_SELECTION_KEY, useSessionRuntimeStore } from '../../store
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { SavedProvider } from '../../types/provider'
 import type { RuntimeSelection } from '../../types/runtime'
-import type { EffortLevel, ModelInfo } from '../../types/settings'
+import type { ModelInfo } from '../../types/settings'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { isTauriRuntime } from '../../lib/desktopRuntime'
 import { MobileBottomSheet } from '../shared/MobileBottomSheet'
@@ -134,10 +134,8 @@ export function ModelSelector({
   const {
     currentModel: storeModel,
     availableModels,
-    effortLevel,
     activeProviderName,
     setModel,
-    setEffort,
   } = useSettingsStore()
   const {
     providers,
@@ -149,17 +147,11 @@ export function ModelSelector({
     runtimeKey ? state.selections[runtimeKey] : undefined,
   )
   const [open, setOpen] = useState(false)
+  const [animating, setAnimating] = useState(false)
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const requestedProvidersRef = useRef(false)
-
-  const EFFORT_OPTIONS: { value: EffortLevel; label: string }[] = [
-    { value: 'low', label: t('settings.general.effort.low') },
-    { value: 'medium', label: t('settings.general.effort.medium') },
-    { value: 'high', label: t('settings.general.effort.high') },
-    { value: 'max', label: t('settings.general.effort.max') },
-  ]
 
   const isControlled = value !== undefined
   const isRuntimeScoped =
@@ -172,6 +164,11 @@ export function ModelSelector({
     void fetchProviders()
   }, [fetchProviders, isRuntimeScoped, providersLoading])
 
+  const closeWithAnimation = useCallback(() => {
+    setAnimating(false)
+    setTimeout(() => setOpen(false), 200)
+  }, [])
+
   useEffect(() => {
     if (!open) return
     const handleClick = (e: MouseEvent) => {
@@ -181,11 +178,11 @@ export function ModelSelector({
         !ref.current.contains(target) &&
         !dropdownRef.current?.contains(target)
       ) {
-        setOpen(false)
+        closeWithAnimation()
       }
     }
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') closeWithAnimation()
     }
     document.addEventListener('mousedown', handleClick)
     document.addEventListener('keydown', handleEsc)
@@ -307,7 +304,7 @@ export function ModelSelector({
         useChatStore.getState().setSessionRuntime(runtimeKey, selection)
       }
     }
-    setOpen(false)
+    closeWithAnimation()
   }
 
   const dropdownContent = (
@@ -392,7 +389,7 @@ export function ModelSelector({
                     } else {
                       void setModel(model.id)
                     }
-                    setOpen(false)
+                    closeWithAnimation()
                   }}
                   className={`
                     w-full rounded-lg px-3 text-left transition-colors
@@ -428,36 +425,6 @@ export function ModelSelector({
         )}
       </div>
 
-      {!isControlled && !isRuntimeScoped && (
-        <div className="border-t border-[var(--color-border)] p-3">
-          <div className="mb-2 px-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
-            {t('model.effort')}
-          </div>
-          <div className="grid grid-cols-4 gap-1.5">
-            {EFFORT_OPTIONS.map((opt) => {
-              const isSelected = opt.value === effortLevel
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    void setEffort(opt.value)
-                    setOpen(false)
-                  }}
-                  className={`
-                    rounded-lg py-2 text-center text-xs font-semibold transition-colors
-                    ${isSelected
-                      ? 'bg-[var(--color-brand)] text-white'
-                      : 'bg-[var(--color-surface-container-high)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                    }
-                  `}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </>
   )
 
@@ -479,7 +446,9 @@ export function ModelSelector({
       <div
         ref={dropdownRef}
         data-testid="model-selector-dropdown"
-        className="fixed z-[80] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)]"
+        className={`fixed z-[80] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)] transition-all duration-200 ease-out ${
+          animating ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-1'
+        }`}
         style={{
           top: dropdownPosition.top,
           left: dropdownPosition.left,
@@ -495,7 +464,11 @@ export function ModelSelector({
   return (
     <div ref={ref} className="relative min-w-0 shrink-0">
       <button
-        onClick={() => !disabled && setOpen(!open)}
+        onClick={() => {
+            if (disabled) return
+            if (!open) { setOpen(true); setTimeout(() => setAnimating(true), 10) }
+            else closeWithAnimation()
+          }}
         disabled={disabled}
         className={`flex items-center gap-2 rounded-full bg-[var(--color-surface-container-low)] text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${
           compact ? 'max-w-[112px] px-2.5 py-1.5' : 'max-w-[280px] px-3 py-1.5'

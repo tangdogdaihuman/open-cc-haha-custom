@@ -2,7 +2,7 @@
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk'
 
-export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export const THEME_MODES = ['light', 'dark', 'white'] as const
 export type ThemeMode = (typeof THEME_MODES)[number]
 

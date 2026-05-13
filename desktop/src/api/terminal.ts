@@ -19,16 +19,28 @@ export type TerminalExitPayload = {
 
 type Unlisten = () => void
 
+function isTerminalAvailable(): boolean {
+  if (typeof window === 'undefined') return false
+  if ((window as any).__PYWEBVIEW__) return true
+  return isTauriRuntime()
+}
+
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isTauriRuntime()) {
+  if (!isTerminalAvailable()) {
     throw new Error('Terminal is available in the desktop app runtime.')
+  }
+  // pywebview: 使用注入的 __TAURI_INTERNALS__.invoke polyfill
+  if ((window as any).__PYWEBVIEW__) {
+    const internals = (window as any).__TAURI_INTERNALS__
+    if (!internals?.invoke) throw new Error('Terminal polyfill not found')
+    return internals.invoke(command, args) as Promise<T>
   }
   const api = await import('@tauri-apps/api/core')
   return api.invoke<T>(command, args)
 }
 
 export const terminalApi = {
-  isAvailable: isTauriRuntime,
+  isAvailable: isTerminalAvailable,
 
   spawn(input: { cols: number; rows: number; cwd?: string }) {
     return invoke<TerminalSpawnResult>('terminal_spawn', input)
@@ -47,11 +59,19 @@ export const terminalApi = {
   },
 
   async onOutput(handler: (payload: TerminalOutputPayload) => void): Promise<Unlisten> {
+    if ((window as any).__PYWEBVIEW__) {
+      const internals = (window as any).__TAURI_INTERNALS__
+      return internals.event.listen('terminal-output', (event: any) => handler(event.payload))
+    }
     const events = await import('@tauri-apps/api/event')
     return events.listen<TerminalOutputPayload>('terminal-output', (event) => handler(event.payload))
   },
 
   async onExit(handler: (payload: TerminalExitPayload) => void): Promise<Unlisten> {
+    if ((window as any).__PYWEBVIEW__) {
+      const internals = (window as any).__TAURI_INTERNALS__
+      return internals.event.listen('terminal-exit', (event: any) => handler(event.payload))
+    }
     const events = await import('@tauri-apps/api/event')
     return events.listen<TerminalExitPayload>('terminal-exit', (event) => handler(event.payload))
   },

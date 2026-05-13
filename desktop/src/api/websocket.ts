@@ -177,8 +177,16 @@ class WebSocketManager {
   }
 }
 
+function getWebSocketBaseUrl(): string {
+  // pywebview 下 WebSocket 必须直连 Bun（代理不支持 WebSocket 升级）
+  if (typeof window !== 'undefined' && (window as any).__PYWEBVIEW__) {
+    return 'http://127.0.0.1:18923'
+  }
+  return getBaseUrl()
+}
+
 export function buildSessionWebSocketUrl(sessionId: string) {
-  const url = new URL(getBaseUrl())
+  const url = new URL(getWebSocketBaseUrl())
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   const basePath = url.pathname === '/' ? '' : url.pathname.replace(/\/$/, '')
   url.pathname = `${basePath}/ws/${encodeURIComponent(sessionId)}`

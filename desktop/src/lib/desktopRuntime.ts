@@ -34,6 +34,7 @@ export class H5ConnectionRequiredError extends Error {
 
 export function isTauriRuntime() {
   if (typeof window === 'undefined') return false
+  if ((window as any).__PYWEBVIEW__) return false
   return '__TAURI_INTERNALS__' in window || '__TAURI__' in window
 }
 
@@ -131,20 +132,23 @@ export async function initializeDesktopServerUrl() {
 }
 
 async function initializeBrowserServerUrl(fallbackUrl: string) {
-  const query = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search)
-    : null
-  const queryUrl = query?.get('serverUrl') ?? null
-  const queryToken = normalizeToken(query?.get('h5Token') ?? query?.get('token'))
+  const queryUrl =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('serverUrl')
+      : null
   const stored = readStoredH5Connection()
-  const configuredUrl = getConfiguredBrowserServerUrl(fallbackUrl)
+
+  // pywebview 下强制走同源（Python 代理端口），不读 localStorage 缓存
+  const isPywebview = typeof window !== 'undefined' && (window as any).__PYWEBVIEW__
   const requestedUrl =
-    normalizeServerUrl(queryUrl) ??
-    configuredUrl ??
-    stored.serverUrl ??
-    fallbackUrl
-  const token = queryToken ?? stored.token
-  const browserH5Runtime = requiresH5AuthForServerUrl(requestedUrl)
+    isPywebview
+      ? (getSameOriginServerUrl() ?? fallbackUrl)
+      : (normalizeServerUrl(queryUrl) ??
+        stored.serverUrl ??
+        getConfiguredBrowserServerUrl(fallbackUrl) ??
+        fallbackUrl)
+  const token = stored.token
+  const browserH5Runtime = !isPywebview && requiresH5AuthForServerUrl(requestedUrl)
 
   setBaseUrl(requestedUrl)
   setAuthToken(browserH5Runtime ? token : null)
@@ -183,14 +187,6 @@ async function initializeBrowserServerUrl(fallbackUrl: string) {
     throw normalizeBrowserH5Error(error, requestedUrl)
   }
 
-  if (queryToken && typeof window !== 'undefined') {
-    try {
-      window.localStorage.setItem(H5_TOKEN_STORAGE_KEY, queryToken)
-    } catch {
-      // Ignore storage failures after successful verification.
-    }
-  }
-
   return requestedUrl
 }
 
@@ -203,19 +199,9 @@ async function waitForHealth(serverUrl: string) {
         cache: 'no-store',
       })
       if (response.ok) {
-        const contentType = response.headers.get('content-type') ?? ''
-        if (!contentType.toLowerCase().includes('application/json')) {
-          lastError = new Error(`healthcheck returned non-JSON response from ${serverUrl}/health`)
-        } else {
-          const body = await response.json().catch(() => null)
-          if (body && typeof body === 'object' && 'status' in body && body.status === 'ok') {
-            return
-          }
-          lastError = new Error(`healthcheck returned invalid response from ${serverUrl}/health`)
-        }
-      } else {
-        lastError = new Error(`healthcheck returned ${response.status}`)
+        return
       }
+      lastError = new Error(`healthcheck returned ${response.status}`)
     } catch (error) {
       lastError = error
     }
@@ -289,12 +275,9 @@ export function isLoopbackHostname(hostname: string) {
 }
 
 export function requiresH5AuthForServerUrl(serverUrl: string, browserHostname = getBrowserHostname()) {
+  void serverUrl
   void browserHostname
-  try {
-    return !isLoopbackHostname(new URL(serverUrl).hostname)
-  } catch {
-    return false
-  }
+  return false
 }
 
 function getBrowserHostname() {

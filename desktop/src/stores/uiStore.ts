@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import { isThemeMode, THEME_MODES, type ThemeMode } from '../types/settings'
+import type { ThemeMode } from '../types/settings'
 
 const THEME_STORAGE_KEY = 'cc-haha-theme'
 
 function getStoredTheme(): ThemeMode {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (isThemeMode(stored)) return stored
+    if (stored === 'light' || stored === 'dark') return stored
   } catch { /* localStorage unavailable */ }
   return 'light'
 }
@@ -14,7 +14,7 @@ function getStoredTheme(): ThemeMode {
 export function applyTheme(theme: ThemeMode) {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', theme)
-  document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
+  document.documentElement.style.colorScheme = theme
 }
 
 export function initializeTheme() {
@@ -33,7 +33,6 @@ export type SettingsTab =
   | 'permissions'
   | 'activity'
   | 'general'
-  | 'h5Access'
   | 'adapters'
   | 'terminal'
   | 'mcp'
@@ -41,6 +40,8 @@ export type SettingsTab =
   | 'skills'
   | 'plugins'
   | 'computerUse'
+  | 'deepseek'
+  | 'ccConnect'
   | 'diagnostics'
   | 'about'
 
@@ -84,8 +85,7 @@ export const useUIStore = create<UIStore>((set) => ({
 
   toggleTheme: () => {
     set((state) => {
-      const currentIndex = THEME_MODES.indexOf(state.theme)
-      const next = THEME_MODES[(currentIndex + 1) % THEME_MODES.length] ?? 'light'
+      const next = state.theme === 'light' ? 'dark' : 'light'
       applyTheme(next)
       try { localStorage.setItem(THEME_STORAGE_KEY, next) } catch { /* noop */ }
       return { theme: next }

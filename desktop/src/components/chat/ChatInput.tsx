@@ -22,6 +22,7 @@ import { RepositoryLaunchControls } from '../shared/RepositoryLaunchControls'
 import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
 import { ContextUsageIndicator } from './ContextUsageIndicator'
+import { EffortSelector } from '../controls/EffortSelector'
 import {
   FALLBACK_SLASH_COMMANDS,
   findSlashTrigger,
@@ -1007,6 +1008,9 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
                   fallbackModelLabel={runtimeModelLabel}
                   compact={useCompactControls}
                 />
+              )}
+              {!isMemberSession && activeTabId && (
+                <EffortSelector />
               )}
               {!isMemberSession && activeTabId && (
                 <ModelSelector runtimeKey={activeTabId} disabled={isActive} compact={useCompactControls} />
