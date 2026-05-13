@@ -738,6 +738,44 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
     if (isMemberSession) return
+    // 检测拖入的是否为文件夹
+    const items = event.dataTransfer.items
+    let folderPath: string | null = null
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        if (!item) continue
+        const entry = item.webkitGetAsEntry?.()
+        if (entry?.isDirectory) {
+          // 从拖入的文件中提取文件夹路径（WebView2 支持 file.path）
+          const files = event.dataTransfer.files
+          if (files.length > 0 && (files[0] as any).path) {
+            const fp = (files[0] as any).path as string
+            // 取第一个文件所在目录，去掉末尾的路径分隔符
+            folderPath = fp.replace(/[/\\][^/\\]*$/, '')
+          } else {
+            // 无 path 属性时，尝试用文件夹名拼到当前工作目录
+            folderPath = entry.name
+          }
+          break
+        }
+      }
+    }
+    if (folderPath) {
+      // 空白会话：直接设为工作目录；活跃会话：通过终端 cd
+      if (showLaunchControls) {
+        void handleLaunchWorkDirChange(folderPath)
+      } else if (activeTabId) {
+        // 通过 invoke 向终端发送 cd 命令
+        const win = window as any
+        const invoke = win.__TAURI_INTERNALS__?.invoke
+        if (invoke) {
+          void invoke('terminal_write', { data: `cd "${folderPath}"\r\n`, sessionId: activeTabId })
+        }
+      }
+      return
+    }
+    // 非文件夹：按原有逻辑处理为附件
     const files = event.dataTransfer.files
     if (files.length > 0) {
       const fakeEvent = { target: { files } } as React.ChangeEvent<HTMLInputElement>

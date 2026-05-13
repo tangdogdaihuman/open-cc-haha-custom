@@ -158,7 +158,19 @@ async def handle(ws):
                         "error": str(spawn_err),
                     }))
 
-            elif cmd == "write" and session:
+            elif cmd == "write":
+                if not session:
+                    # 自动 spawn：拖文件夹等场景终端面板可能未打开
+                    session = TermSession(
+                        1, 80, 24, m.get("cwd", os.path.expanduser("~")),
+                        cc_session_id=m.get("sessionId"),
+                    )
+                    await session.spawn()
+                    await ws.send(json.dumps({
+                        "type": "spawn", "session_id": session.sid,
+                        "shell": "powershell", "cwd": session.cwd,
+                    }))
+                    reader_task = asyncio.create_task(reader())
                 await session.write(m.get("data", ""))
                 # 注入 cwd 探针，追踪 cd 后的工作目录变化
                 await session.probe_cwd()
