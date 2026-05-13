@@ -762,16 +762,15 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
       }
     }
     if (folderPath) {
-      // 空白会话：直接设为工作目录；活跃会话：通过终端 cd
+      // 空白会话：直接设为工作目录；活跃会话：直接更新 session workDir
       if (showLaunchControls) {
         void handleLaunchWorkDirChange(folderPath)
       } else if (activeTabId) {
-        // 通过 invoke 向终端发送 cd 命令
-        const win = window as any
-        const invoke = win.__TAURI_INTERNALS__?.invoke
-        if (invoke) {
-          void invoke('terminal_write', { data: `cd "${folderPath}"\r\n`, sessionId: activeTabId })
-        }
+        fetch('/api/terminal/cwd-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: activeTabId, cwd: folderPath }),
+        }).catch(() => {})
       }
       return
     }
