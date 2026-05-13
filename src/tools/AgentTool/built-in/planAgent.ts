@@ -73,7 +73,7 @@ REMEMBER: You can ONLY explore and plan. You CANNOT and MUST NOT write, edit, or
 export const PLAN_AGENT: BuiltInAgentDefinition = {
   agentType: 'Plan',
   whenToUse:
-    'Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.',
+    '软件架构代理，用于设计实施计划。当需要规划任务实施策略时使用。返回分步计划、识别关键文件、考量架构权衡。',
   disallowedTools: [
     AGENT_TOOL_NAME,
     EXIT_PLAN_MODE_TOOL_NAME,

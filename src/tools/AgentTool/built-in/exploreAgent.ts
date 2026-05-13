@@ -59,7 +59,7 @@ Complete the user's search request efficiently and report your findings clearly.
 export const EXPLORE_AGENT_MIN_QUERIES = 3
 
 const EXPLORE_WHEN_TO_USE =
-  'Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.'
+  '快速代码库探索代理。当需要按模式查找文件（如 "src/components/**/*.tsx"）、按关键字搜索代码（如 "API endpoints"）、或回答代码库相关问题时使用。指定搜索深度：quick（快速）、medium（中等）、very thorough（全面搜索，跨多位置和多命名惯例）。'
 
 export const EXPLORE_AGENT: BuiltInAgentDefinition = {
   agentType: 'Explore',
